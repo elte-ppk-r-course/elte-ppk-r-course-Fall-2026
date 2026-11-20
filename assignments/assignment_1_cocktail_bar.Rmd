@@ -15,7 +15,7 @@ editor_options:
 -   String manipulation (e.g. stringr)
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
 library(tidyverse)
 ```
 
@@ -33,6 +33,9 @@ Read the cocktail dataset from: <https://github.com/nthun/cocktail-balance> You 
 
 ```{r}
 
+url <-  "https://raw.githubusercontent.com/nthun/cocktail-balance/master/cocktail_data.tsv"
+cocktail_data <- read_tsv(url)
+
 ```
 
 ## 2. Transform the data table and clean the ingredient variable!
@@ -40,15 +43,42 @@ Read the cocktail dataset from: <https://github.com/nthun/cocktail-balance> You 
 The ingredients are currently in a single cell for each cocktail. It would be better to put them in separate rows. Also, the variable should be cleaned of all quantities (e.g. 1/2 oz, 2 dashes, etc.), and the indicator of alcohol content (e.g. 47.3% abv). You will need to use this cleaned table in later tasks.
 
 ```{r}
+ingredients <- cocktail_data %>%
+  select(name, ingredients) %>%
+    separate_longer_delim(cols = ingredients, delim = "<br/>") %>%
+    mutate(ingredients = str_remove(ingredients, " oz")) %>%
+        mutate(ingredients = str_remove_all(ingredients, " oz|% abv|1/2|3/4|1/4|[0-9]+|\\(|\\)|/| bsp")) %>%
+        mutate(ingredients = str_remove_all(ingredients, "drops|drop")) %>%
+        mutate(ingredients = str_remove_all(ingredients, "dashes|dash")) %>%
+        mutate(ingredients = str_squish(ingredients)) %>%
+    mutate(col_name = paste0("ingredient_", row_number()), .by = name) %>%
+    pivot_wider(names_from = col_name, values_from = ingredients)
 
+cocktail_data <- cocktail_data %>%
+  select(-ingredients) %>%
+  left_join(ingredients, by = "name")
+  
+
+
+print(head(cocktail_data))
 ```
 
 ## 3. All ingredients in alphabetical order
 
-Before opening the bar, you need to find a reliable supplier that has all the ingredients. You need to send a list of all possible ingredients you will need. They don't need the quantities (i.e. how many of these are needed), just the names of the ingredients.
+Before opening the bar, you need to find a reliable supplier that has all the ingredients. 
+You need to send a list of all possible ingredients you will need. 
+They don't need the quantities (i.e. how many of these are needed), just the names of the ingredients.
 
 ```{r}
+all_ingredients <- cocktail_data %>%
+  select(starts_with("ingredient_")) %>%
+  pivot_longer(cols = starts_with("ingredient_"), values_to = "ingredients") %>%
+  drop_na(ingredients) %>%
+  distinct(ingredients) %>%
+  arrange(ingredients) %>%
+  pull(ingredients)
 
+all_ingredients
 ```
 
 ## 4. Number of unique ingredients
@@ -56,6 +86,8 @@ Before opening the bar, you need to find a reliable supplier that has all the in
 How many different ingredients you will need?
 
 ```{r}
+#The number of unique ingrredients:
+length(all_ingredients)
 
 ```
 
@@ -64,7 +96,14 @@ How many different ingredients you will need?
 What are the 10 most frequently used ingredients? If there are ties, you can list more than 10.
 
 ```{r}
+top_10 <- cocktail_data %>%
+  select(starts_with("ingredient_")) %>%
+  pivot_longer(cols = starts_with("ingredient_"), values_to = "ingredients") %>%
+  drop_na(ingredients) %>%
+  count(ingredients, sort = TRUE) %>%
+  head(10)
 
+top_10
 ```
 
 ## 6. Which cocktail(s) has/have the most ingredients?
@@ -72,6 +111,15 @@ What are the 10 most frequently used ingredients? If there are ties, you can lis
 Count the number of ingredients and filter all the cocktails that has that many.
 
 ```{r}
+cocktail_data %>%
+  select(starts_with("ingredient_")) %>%
+  ncol()
+colnames(cocktail_data) #also visible in the column names
+#there are 6 ingredients max, now If I drop all rows of ingredient_6 that are NA than all that should remain are the 6 ing. cocktails.
+
+sixing_cctls <- cocktail_data %>%
+  drop_na(ingredient_6)
+
 
 ```
 
@@ -80,19 +128,34 @@ Count the number of ingredients and filter all the cocktails that has that many.
 Count all cocktails with only one ingredient, and
 
 ```{r}
+rare <- cocktail_data %>%
+  select(starts_with("ingredient_")) %>% 
+  pivot_longer(cols = everything(), values_to = "ingredients") %>%
+  count(ingredients) %>%
+  filter(n == 1) %>%
+  pull(ingredients)
+
+length(rare)
 
 ```
 
 ## 8. Which cocktail has an ingredient that is only used in one cocktail?
 
 ```{r}
-
+cocktail_unique <- cocktail_data %>%
+  filter(if_any(starts_with("ingredient_"), ~ .x %in% rare)) %>%
+  pull(name)
+cocktail_unique
 ```
 
 ## 9. What are the cocktails without rare ingredients?
 
 ```{r}
-  
+cocktail_data %>%
+  distinct(name) %>%
+  filter(!name %in% cocktail_unique) %>%
+  arrange(name) %>%
+  pull(name)
 ```
 
 ## 10. Create a cheat sheet for the bartender!
@@ -108,9 +171,24 @@ tribble(~name, ~Lime, ~`White rum`, ~`Cane sugar`, ~`Coca-cola`, ~Mint, ~Soda,
 ```
 
 ```{r}
+cocktail_data <- cocktail_data[, !duplicated(colnames(cocktail_data))]
+colnames(cocktail_data)
+cheat_sheet <- cocktail_data %>%
+  select(name, starts_with("ingredient_")) %>%
+  pivot_longer(cols = starts_with("ingredient_") , values_to = "ingredients", names_repair = "universal") %>%
+  drop_na(ingredients) %>%
+  distinct(name...1, ingredients) %>%
+  mutate(value= "X" ) %>%
+  pivot_wider(names_from = ingredients, 
+    values_from = value, values_fill = "") %>%
+  relocate(name...1, sort(names(.)))
+
+
+
+
+print(cheat_sheet, n = Inf, width = Inf)
 
 ```
-
 
 Congrats, the bar is now officially open!
 
