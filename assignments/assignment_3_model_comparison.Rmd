@@ -54,12 +54,24 @@ In your discussion of the findings, briefly interpret the results of the above a
 
 # Solution
 
+## SETUP 
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(lme4)
+library(skimr)
+library(ggplot2)
+library(performance)
+
+```
 ## Read the data
 
 Read the dataset used in this assignment. Pay attention to the extension of the datafile.
 
 ```{r}
-
+data <- read_excel("data/assignment_3_dataset.xlsx"
+) |>
+  mutate(id=row_number())
 ```
 
 ## Data and model diagnostics 
@@ -69,6 +81,64 @@ Read the dataset used in this assignment. Pay attention to the extension of the 
 Run an exploratory data analysis (EDA) to investigate the dataset.
 
 ```{r}
+data%>%
+  glimpse() |>
+  skim()
+
+```
+
+```{r}
+data %>%
+  summarize(mean_pain = mean(pain, na.rm=TRUE))
+data %>%
+  count(sex)
+data %>%
+  count(age) %>%
+  print(n=24)
+data %>%
+  summarise(sd_age = sd(age, na.rm = TRUE))
+data %>%
+  summarise(
+    min_STAI = min(STAI_trait, na.rm = TRUE),
+    max_STAI = max(STAI_trait, na.rm = TRUE)
+  )
+data %>%
+  summarize(mean_STAI = mean(STAI_trait, na.rm=TRUE))
+data %>%
+  summarise(
+    min_cat = min(pain_cat, na.rm = TRUE),
+    max_cat = max(pain_cat, na.rm = TRUE)
+  )
+data %>%
+  summarize(mean_p_cat = mean(pain_cat, na.rm=TRUE))
+data %>%
+  summarize(mean_c_serum = mean(cortisol_serum, na.rm=TRUE))
+data %>%
+  summarize(mean_c_saliva = mean(cortisol_saliva, na.rm=TRUE))
+
+```
+```{r}
+data |>
+  ggplot(
+    aes(x=STAI_trait)
+  )+
+  geom_bar()
+data |>
+  ggplot(
+    aes(x=pain)
+  )+
+  geom_bar()
+data |>
+  ggplot(
+    aes(x=pain_cat)
+  )+
+  geom_bar()
+data |>
+  ggplot(
+    aes(x=mindfulness)
+  )+
+  geom_bar()
+
 
 ```
 
@@ -76,8 +146,25 @@ Run an exploratory data analysis (EDA) to investigate the dataset.
 
 If you find values in the dataset during the EDA, that are not correct based on the provided descriptions of the variables of the dataset please correct them here.
 
-```{r}
+problems are: sex (1 woman instead of fefmale),  pain (1 value of 50) ,mindfulnes (1 above 6), 
 
+```{r}
+data <- data |>
+  mutate(sex = case_when(
+   sex %in% "woman" ~ "female",
+   TRUE ~ sex
+  ),) |>
+  mutate(pain= if_else(pain>10, NA,pain)
+  ) |>
+  mutate(mindfulness = if_else(mindfulness>6,NA,mindfulness))
+
+
+data |>
+  count(sex) 
+data|>
+  summarise(max_pain = max(pain, na.rm = TRUE))
+data|>
+  summarise(max_mind = max(mindfulness, na.rm = TRUE))
 ```
 
 ### Model diagnostics
@@ -86,36 +173,81 @@ If you find values in the dataset during the EDA, that are not correct based on 
 In order to test the more complex model for outliers and to test the assumptions first build the model.
 
 ```{r}
+simple <- lm(pain ~ age + sex, data=data)
 
+compx<- lm(pain~ age + sex +STAI_trait + pain_cat 
+  + mindfulness + cortisol_saliva + cortisol_serum, data=data)
+
+summary(simple)
+summary(compx)
+nobs(compx)
 ```
 
 #### Checking for influential outliers
 
 Check for outlier values in the model.
-
+I choose the outlier range of mean cook's distance times 3.
 ```{r}
+cooksd <- compx |>
+  broom::augment() |>
+  mutate(outlier = .cooksd > mean(.cooksd)*3)
+  head(cooksd)
+cooksd |>
+  filter(outlier)
+out_id <- cooksd |>
+  filter(outlier)|>
+  pull(.rownames)
+
+
+data_out <- data |>
+  filter(!id %in% out_id)
+
+compx_out <- lm(pain ~age + sex +STAI_trait + pain_cat 
+  + mindfulness + cortisol_saliva + cortisol_serum, data_out)
+
+summary(compx_out)
+
+# number of removed outliers:
+nrow(data)-nrow(data_out)
 
 ```
+Since the F statistic is higher the taking out the outliers proved beneficial.
 
 #### Checking assumptions
 
 Check the normality assumption.
 
 ```{r}
+compx_out |>
+  broom::augment() |>
+  ggplot(aes(sample = .std.resid)) +
+  geom_qq()+
+  geom_qq_line(color = "red")
+  
+shapiro.test(residuals(compx))
 
 ```
+Based on the QQ plot, and shapiro wilk test there is normality 
 
 Check the linearity assumption.
 
 ```{r}
-
+compx_out |>
+  broom::augment() |>
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(se = FALSE, color = "steelblue")
 ```
+
+linearity of the model is intact based on the fitted X residuals plot
 
 Check the homoscedasticty assumption (homogeneity of variance).
 
 ```{r}
-
+performance::check_heteroscedasticity(compx_out)
 ```
+assumption met, p = 0.164
 
 Check the multicollinearity assumption.
 
@@ -126,20 +258,50 @@ https://statisticalhorizons.com/multicollinearity
 http://blog.minitab.com/blog/understanding-statistics/handling-multicollinearity-in-regression-analysis
 
 ```{r}
-
+check_collinearity(compx_out)
 ```
-
+Since the VIF of cortisol measures are high, above 6, dropping them from the model is reasonable, as they provide little additional information.
 ### Making decision based on model diagnostics
 
 If based on the assumption tests you decide to drop a predictor variable you should do that here. Create your updated model.
 
 ```{r}
-
+fin_mod <- lm(
+  pain ~ age + sex +STAI_trait + pain_cat 
+  + mindfulness,
+  data
+)
+summary(fin_mod)
 ```
 
 #### Checking outliers of the updated model
 
 ```{r}
+cooksd <- fin_mod |>
+  broom::augment() |>
+  mutate(outlier = .cooksd > mean(.cooksd)*3)
+  head(cooksd)
+cooksd |>
+  filter(outlier)
+
+
+fin_out_id <- cooksd |>
+  filter(outlier)|>
+  pull(.rownames)
+
+
+fin_dat <- data |>
+  filter(!id %in% fin_out_id) |>
+  drop_na(pain, age, sex, STAI_trait, pain_cat, mindfulness)
+
+nrow(data)- nrow(fin_out)
+
+fin_out_mod <- lm(
+  pain ~ age + sex +STAI_trait + pain_cat 
+  + mindfulness,
+  fin_dat
+)
+summary(fin_out_mod)
 
 ```
 
@@ -148,44 +310,105 @@ If based on the assumption tests you decide to drop a predictor variable you sho
 Normality assumption
 
 ```{r}
+shapiro.test(residuals(fin_out_mod))
 
 ```
+OK p = 0.84
 
 Linearity assumption
 
 ```{r}
-
+fin_out_mod |>
+  broom::augment() |>
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(se = FALSE, color = "steelblue")
 ```
+based on plot its ok
 
 Homoscedasticty assumption (homogeneity of variance)
 
 ```{r}
+performance::check_heteroscedasticity(fin_out_mod)
 
 ```
-
+ok p = 0.473
 Multicollinearity assumption
 
 ```{r}
+check_collinearity(fin_out_mod)
 
 ```
-
+ok all below 3
 ## Model comparison
 
 Create the simple model and get the results of the model that needs to be reported based on the What to report section.
 
 ```{r}
+library(lm.beta)
+simple <- lm(
+  pain~ age + sex,
+  fin_dat
+)
+summary(simple)
+
+simple_b <- simple |>
+  broom::tidy(conf.int = TRUE) |>
+  mutate(
+    Beta = lm.beta(simple)$standardized.coefficients
+  ) |>
+  select(
+    Predictor = term,
+    B         = estimate,
+    low_CI    = conf.low,
+    CI_high   = conf.high,
+    Beta,
+    p         = p.value
+  )
+
+simple_b
 
 ```
 
 Create the more complex model based on the results of the model diagnostics. Also, get the results that needs to be reported based on the What to report section.
 
 ```{r}
+#the model is allready created above, here I only focus on reports
+summary(fin_out_mod)
 
+compx_b <- fin_out_mod |>
+  broom::tidy(conf.int = TRUE) |>
+  mutate(
+    Beta = lm.beta(fin_out_mod)$standardized.coefficients
+  ) |>
+  select(
+    Predictor = term,
+    B         = estimate,
+    low_CI    = conf.low,
+    CI_high   = conf.high,
+    Beta,
+    p         = p.value
+  )
+
+compx_b
+
+#pain = 2.597 - 0.048 ∗ age + 0.207 ∗ sex + 0.038 * STAI_trait + 0.107 * pain_cat - 0.169 * mindfulness
 ```
 
 Compare the two models.
 
 ```{r}
 
+anova(simple, fin_out_mod)
+
 ```
 
+#Discussion
+
+The two models are significantly different as the final test shows  (F = 16.328, p < 0.001)
+This leads us to think that the psychological predictors improved the model,
+and helped predict postoperative pain better.
+OUr model find pain catastrophisation to be the only psychological predictor significantly predicting pain.
+Age proved to have a significant negative predictive value, meaning older people were observed to have less pain.
+I think the moodel provides significant insight and proved useful.
