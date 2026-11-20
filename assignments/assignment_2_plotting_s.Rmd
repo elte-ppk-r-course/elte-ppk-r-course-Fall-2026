@@ -17,25 +17,42 @@ You will have to create 3 plots based on the datasets and instructions detailed 
 -   Data visuzlization (ggplot2)
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(tidytuesdayR)
 ```
 
 ## Task 1: Climbing expeditions
 
-The 2020-09-22 TidyTueday datasets are about climbing expeditions. From the three datasets, use the "expeditions". Reproduce the plot below! Notice a few things:
+The 2020-09-22 TidyTueday datasets are about climbing expeditions. From the three datasets,
+use the "expeditions". Reproduce the plot below! Notice a few things:
 
 -   Use `forcats::fct_lump()` to get the 15 most frequent peaks, and drop the "Other" category.
 -   The bars are ordered by the sum of all expeditions (use `fct_reorder()`).
 -   The bar colors use the viridis palette and light theme.
 
 ```{r}
+exped <- read_csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-22/expeditions.csv"
+  ) %>%
+  mutate(peak_name = fct_lump(peak_name, n = 15, other_level = "other")) %>%
+  filter(!is.na(peak_name), peak_name != "other")
+```
+
+```{r}
+exped %>%
+  mutate(
+    peak_name = fct_reorder(peak_name, peak_name, .fun = length),
+    season = fct_infreq(season)
+  ) %>%
+  ggplot(aes(x = peak_name, fill = season)) +
+  geom_bar() +
+  coord_flip() +
+  scale_fill_viridis_d() +
+  theme_light()
 
 ```
 
 ## Task 2: PhDs awarded
-
 The 2019-02-19 TidyTueday dataset is about phd-s awarded by year and field. There is only one dataset, it is called `phd_by_field`. Reproduce the plot below!
 
 Notes:
@@ -44,7 +61,23 @@ Notes:
 -   To make the x axis breaks pretty, use `scales::pretty_breaks()`, to make the y axis labels comma formatted, use `scales::comma_format()`.
 -   The line size is 1.2, the colors are from the brewer "Dark2" palette. The theme is set to minimal.
 
+
 ```{r}
+phd <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-02-19/phd_by_field.csv"
+  ) %>%
+  group_by(year, broad_field) %>%
+  summarise(n_phds = sum(n_phds, na.rm = TRUE), .groups = "drop")
+
+```
+```{r}
+phd %>%
+  ggplot(aes(x = year, y= n_phds, color = broad_field, group = broad_field)) +
+  geom_line(linewidth = 1.2) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_minimal()
+
 
 ```
 
@@ -59,5 +92,25 @@ Notes:
 -   The point size is 2, . The theme is set to light.
 
 ```{r}
+Com <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-11-05/commute.csv")%>%
+  pivot_wider(names_from = mode, values_from = n)%>%
+  group_by(state,state_abb, state_region) %>%
+  summarise(
+      Walk = sum(Walk, na.rm = TRUE),
+      Bike = sum(Bike,na.rm=TRUE)
+  )
+
+
+head(Com,52)
+```
+
+```{r}
+Com %>%
+  ggplot(aes(x = Walk, y= Bike , color = state_region, label = state_abb))+
+  geom_point(size = 2) +
+  scale_x_log10(labels = scales::comma_format()) +
+  scale_y_log10(labels = scales::comma_format()) +
+  geom_text(nudge_y = 0.05, size = 3, color = "black") +
+  theme_light()
 
 ```
