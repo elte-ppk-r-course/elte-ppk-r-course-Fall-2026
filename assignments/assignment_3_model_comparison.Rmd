@@ -52,15 +52,38 @@ Compare the two models in terms of how much variance they explain of pain’s va
 
 In your discussion of the findings, briefly interpret the results of the above analyses, and indicate whether you think that anything was gained by including the psychological and hormone measures in the model.
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Always start from the project folder, so the data path works
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+library(tidyverse)
+library(readxl)
+library(car)
+library(lm.beta)
+library(broom)
+library(lmtest)
+```
+
 # Solution
 
 ## Read the data
 
 Read the dataset used in this assignment. Pay attention to the extension of the datafile.
 
-```{r}
 
+
+```{r}
+data_pain <- read_xlsx(https://github.com/drkovacskata/elte-ppk-r-course-Fall-2026/blob/main/data/assignment_3_dataset.xlsx)
+data_pain <- readxl::read_xlsx("data/assignment_3_dataset.xlsx")
 ```
+```{r}
+glimpse(data_pain)
+summary(data_pain)
+count(data_pain, sex)
+```
+
+
 
 ## Data and model diagnostics 
 ### Data diagnostics
@@ -69,7 +92,25 @@ Read the dataset used in this assignment. Pay attention to the extension of the 
 Run an exploratory data analysis (EDA) to investigate the dataset.
 
 ```{r}
+# Look at the structure of the data
+glimpse(data_pain)
 
+# Basic descriptives: min, max, mean, NA count
+summary(data_pain)
+
+# Check the categories of sex
+count(data_pain, sex)
+
+# Check for missing values in each column
+colSums(is.na(data_pain))
+
+# Histograms of the numeric variables
+data_pain %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 20) +
+  facet_wrap(~ name, scales = "free")
 ```
 
 #### Correct coding errors
@@ -77,8 +118,31 @@ Run an exploratory data analysis (EDA) to investigate the dataset.
 If you find values in the dataset during the EDA, that are not correct based on the provided descriptions of the variables of the dataset please correct them here.
 
 ```{r}
+# Fix coding errors
+data_pain <- data_pain %>%
+  mutate(
+    # "woman" is the same as "female"
+    sex = if_else(sex == "woman", "female", sex),
+    sex = factor(sex),
+    # values outside the allowed range are set to NA
+    pain = if_else(pain > 10, NA_real_, pain),
+    mindfulness = if_else(mindfulness > 6, NA_real_, mindfulness)
+  )
+
+# Check the result
+count(data_pain, sex)
+summary(data_pain)
+
+# Remove rows with missing values in the model variables
+data_pain <- data_pain %>%
+  drop_na(pain, sex, age, STAI_trait, pain_cat, mindfulness,
+          cortisol_serum, cortisol_saliva)
+
+# Check: should be 158 rows
+nrow(data_pain)
 
 ```
+#I found three coding errors: 1 woman value was recoded to female, and 2 impossible values (pain = 50, mindfulness = 6.22) were set to missing. These 2 rows were excluded from the analysis, leaving 158 participants.
 
 ### Model diagnostics
 #### Build the more complex model
@@ -86,7 +150,8 @@ If you find values in the dataset during the EDA, that are not correct based on 
 In order to test the more complex model for outliers and to test the assumptions first build the model.
 
 ```{r}
-
+mod_complex <- lm(pain ~ age + sex + STAI_trait + pain_cat + mindfulness +
+                    cortisol_serum + cortisol_saliva, data = data_pain)
 ```
 
 #### Checking for influential outliers
@@ -94,7 +159,9 @@ In order to test the more complex model for outliers and to test the assumptions
 Check for outlier values in the model.
 
 ```{r}
-
+# Cook's distance
+plot(mod_complex, which = 4)
+which(cooks.distance(mod_complex) > 4 / nrow(data_pain))
 ```
 
 #### Checking assumptions
@@ -102,7 +169,9 @@ Check for outlier values in the model.
 Check the normality assumption.
 
 ```{r}
-
+# Normality
+plot(mod_complex, which = 2)
+shapiro.test(residuals(mod_complex))
 ```
 
 Check the linearity assumption.
