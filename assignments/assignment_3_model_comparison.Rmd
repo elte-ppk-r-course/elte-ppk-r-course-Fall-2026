@@ -60,6 +60,19 @@ Read the dataset used in this assignment. Pay attention to the extension of the 
 
 ```{r}
 
+# install.packages("car")
+# install.packages("parameters")
+
+library(tidyverse)
+library(readxl)
+library(car)
+
+assignment_3_dataset <- read_excel("../data/assignment_3_dataset.xlsx")
+
+View(assignment_3_dataset)
+
+glimpse(assignment_3_dataset)
+
 ```
 
 ## Data and model diagnostics 
@@ -70,6 +83,8 @@ Run an exploratory data analysis (EDA) to investigate the dataset.
 
 ```{r}
 
+summary(assignment_3_dataset)
+
 ```
 
 #### Correct coding errors
@@ -77,6 +92,36 @@ Run an exploratory data analysis (EDA) to investigate the dataset.
 If you find values in the dataset during the EDA, that are not correct based on the provided descriptions of the variables of the dataset please correct them here.
 
 ```{r}
+
+
+
+assignment_3_dataset_clean <- assignment_3_dataset %>%
+  mutate(pain = if_else(pain > 10 | pain < 0, NA_real_, pain))
+
+assignment_3_dataset_clean %>%
+  filter(pain > 10)
+
+assignment_3_dataset_clean %>%
+  filter(mindfulness > 6 | mindfulness < 1)
+
+assignment_3_dataset_clean <- assignment_3_dataset_clean %>%
+  mutate(mindfulness = if_else(mindfulness > 6 | mindfulness <1, NA_real_, mindfulness))
+
+assignment_3_dataset_clean %>%
+  filter(mindfulness > 6 | mindfulness < 1)
+
+assignment_3_dataset_clean <- assignment_3_dataset_clean %>%
+  mutate(sex = if_else(sex == "woman", "female", sex))
+
+colSums(is.na(assignment_3_dataset_clean))
+
+regression_data <- assignment_3_dataset_clean %>%
+  drop_na(pain, sex, age, STAI_trait, pain_cat, cortisol_serum, cortisol_saliva, mindfulness, weight, IQ, household_income)
+
+nrow(regression_data)
+
+summary(regression_data)
+
 
 ```
 
@@ -87,6 +132,12 @@ In order to test the more complex model for outliers and to test the assumptions
 
 ```{r}
 
+View(regression_data)
+
+complex_model <- lm(pain ~ age + sex + STAI_trait + pain_cat + mindfulness + cortisol_serum + cortisol_saliva, data = regression_data)
+
+summary(complex_model)
+
 ```
 
 #### Checking for influential outliers
@@ -94,6 +145,15 @@ In order to test the more complex model for outliers and to test the assumptions
 Check for outlier values in the model.
 
 ```{r}
+
+plot(complex_model, which = 4)
+
+cooks_d <- cooks.distance(complex_model)
+
+which(cooks_d > 4 / nrow(regression_data))
+
+regression_data %>%
+  slice(which(cooks_d > 4 / nrow(regression_data)))
 
 ```
 
@@ -103,17 +163,23 @@ Check the normality assumption.
 
 ```{r}
 
+plot(complex_model, which = 2)
+
 ```
 
 Check the linearity assumption.
 
 ```{r}
 
+plot(complex_model, which = 1)
+
 ```
 
 Check the homoscedasticty assumption (homogeneity of variance).
 
 ```{r}
+
+plot(complex_model, which = 3)
 
 ```
 
@@ -126,6 +192,11 @@ https://statisticalhorizons.com/multicollinearity
 http://blog.minitab.com/blog/understanding-statistics/handling-multicollinearity-in-regression-analysis
 
 ```{r}
+library(car)
+
+vif(complex_model)
+
+cor(regression_data$cortisol_saliva, regression_data$cortisol_serum)
 
 ```
 
@@ -135,11 +206,17 @@ If based on the assumption tests you decide to drop a predictor variable you sho
 
 ```{r}
 
+new_complex_model <- update(complex_model, . ~ . - cortisol_serum)
+
+summary(new_complex_model)
+vif(new_complex_model)
 ```
 
 #### Checking outliers of the updated model
 
 ```{r}
+
+plot(new_complex_model, which = 4)
 
 ```
 
@@ -149,11 +226,15 @@ Normality assumption
 
 ```{r}
 
+plot(new_complex_model, which = 2)
+
 ```
 
 Linearity assumption
 
 ```{r}
+
+plot(new_complex_model, which = 1)
 
 ```
 
@@ -161,11 +242,15 @@ Homoscedasticty assumption (homogeneity of variance)
 
 ```{r}
 
+plot(new_complex_model, which = 3)
+
 ```
 
 Multicollinearity assumption
 
 ```{r}
+
+vif(new_complex_model)
 
 ```
 
@@ -175,11 +260,28 @@ Create the simple model and get the results of the model that needs to be report
 
 ```{r}
 
+simple_model <- lm(pain ~ age + sex, data = regression_data)
+
+summary(simple_model)
+
+anova(simple_model, new_complex_model)
+
+confint(simple_model)
+parameters::standardize_parameters(simple_model)
+
 ```
 
 Create the more complex model based on the results of the model diagnostics. Also, get the results that needs to be reported based on the What to report section.
 
 ```{r}
+
+new_complex_model <- update(complex_model, . ~ . - cortisol_serum)
+
+summary(new_complex_model)
+
+confint(new_complex_model)
+
+AIC(new_complex_model)
 
 ```
 
@@ -187,5 +289,38 @@ Compare the two models.
 
 ```{r}
 
+anova(simple_model, new_complex_model)
+
+AIC(simple_model, new_complex_model)
+
+parameters::standardise_parameters(new_complex_model)
+
 ```
+
+
+## Results
+
+### Model diagnostics
+
+Two invalid values were identified and treated as missing, resulting in a sample of 158 participants. Potentially influential observations were retained. The regression assumptions were generally satisfied, except for multicollinearity between the two cortisol measures (r = .90, VIF > 6). Therefore, serum cortisol was excluded from the final updated model, reducing all VIF values below 2.1.
+
+### Regression results and model comparison
+
+The simple model (age and sex) explained 8.0% of the variance in postoperative pain (R² = .080, adjusted R² = .069), *F*(2, 155) = 6.78, *p* = .002.
+
+The updated complex model explained 35.0% of the variance (R² = .350, adjusted R² = .324), *F*(6, 151) = 13.53, *p* < .001. Pain catastrophizing (B = 0.098, β = .30, *p* < .001) and salivary cortisol (B = 0.597, β = .40, *p* < .001) were significant positive predictors.
+
+The complex model significantly improved model fit, ΔR² = .269, *F*(4, 151) = 15.62, *p* < .001. Its AIC was also lower (525.76 vs. 572.48).
+
+### Regression equation
+
+\[
+\widehat{pain} = 1.264 - 0.0198(age) + 0.3176(sexmale) - 0.0300(STAI) + 0.0981(pain\_cat) - 0.1164(mindfulness) + 0.5968(cortisol\_saliva)
+\]
+
+## Discussion
+
+Including psychological and hormonal measures substantially improved the prediction of postoperative pain beyond age and sex. Higher pain catastrophizing and salivary cortisol levels were associated with higher pain scores. However, the model still left approximately 65% of the variance unexplained, and the findings do not establish causality.
+
+Note: AI tools (ChatGPT) were used to support the interpretation of statistical results and the formulation of the report. All analyses were conducted in R.
 
