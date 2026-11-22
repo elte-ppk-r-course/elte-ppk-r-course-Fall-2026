@@ -1,7 +1,6 @@
 ---
 title: "Assignment 3: Model comparison"
-author: "Marton Kovacs" 
-"Completed by: Máté Miklós"
+author: "Marton Kovacs"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -61,14 +60,14 @@ Read the dataset used in this assignment. Pay attention to the extension of the 
 
 ```{r}
 
-install.packages("car")
-install.packages("parameters")
+# install.packages("car")
+# install.packages("parameters")
 
 library(tidyverse)
 library(readxl)
 library(car)
 
-assignment_3_dataset <- read_excel("data/assignment_3_dataset.xlsx")
+assignment_3_dataset <- read_excel("../data/assignment_3_dataset.xlsx")
 
 View(assignment_3_dataset)
 
@@ -323,4 +322,5 @@ The complex model significantly improved model fit, ΔR² = .269, *F*(4, 151) = 
 
 Including psychological and hormonal measures substantially improved the prediction of postoperative pain beyond age and sex. Higher pain catastrophizing and salivary cortisol levels were associated with higher pain scores. However, the model still left approximately 65% of the variance unexplained, and the findings do not establish causality.
 
+Note: AI tools (ChatGPT) were used to support the interpretation of statistical results and the formulation of the report. All analyses were conducted in R.
 
