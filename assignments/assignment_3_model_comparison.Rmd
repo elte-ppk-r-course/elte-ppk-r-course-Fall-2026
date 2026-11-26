@@ -1,6 +1,6 @@
 ---
 title: "Assignment 3: Model comparison"
-author: "Marton Kovacs"
+author: "Katalin Kovacs"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -52,15 +52,37 @@ Compare the two models in terms of how much variance they explain of pain’s va
 
 In your discussion of the findings, briefly interpret the results of the above analyses, and indicate whether you think that anything was gained by including the psychological and hormone measures in the model.
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Always start from the project folder, so the data path works
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+library(tidyverse)
+library(readxl)
+library(car)
+library(lm.beta)
+library(broom)
+library(lmtest)
+```
+
 # Solution
 
 ## Read the data
 
 Read the dataset used in this assignment. Pay attention to the extension of the datafile.
 
-```{r}
 
+
+```{r}
+data_pain <- readxl::read_xlsx("data/assignment_3_dataset.xlsx")
 ```
+```{r}
+glimpse(data_pain)
+summary(data_pain)
+count(data_pain, sex)
+```
+
+
 
 ## Data and model diagnostics 
 ### Data diagnostics
@@ -69,7 +91,25 @@ Read the dataset used in this assignment. Pay attention to the extension of the 
 Run an exploratory data analysis (EDA) to investigate the dataset.
 
 ```{r}
+# Look at the structure of the data
+glimpse(data_pain)
 
+# Basic descriptives: min, max, mean, NA count
+summary(data_pain)
+
+# Check the categories of sex
+count(data_pain, sex)
+
+# Check for missing values in each column
+colSums(is.na(data_pain))
+
+# Histograms of the numeric variables
+data_pain %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 20) +
+  facet_wrap(~ name, scales = "free")
 ```
 
 #### Correct coding errors
@@ -77,8 +117,31 @@ Run an exploratory data analysis (EDA) to investigate the dataset.
 If you find values in the dataset during the EDA, that are not correct based on the provided descriptions of the variables of the dataset please correct them here.
 
 ```{r}
+# Fix coding errors
+data_pain <- data_pain %>%
+  mutate(
+    # "woman" is the same as "female"
+    sex = if_else(sex == "woman", "female", sex),
+    sex = factor(sex),
+    # values outside the allowed range are set to NA
+    pain = if_else(pain > 10, NA_real_, pain), # pain must be 0-10
+    mindfulness = if_else(mindfulness > 6, NA_real_, mindfulness)
+  )
+
+# Check the result
+count(data_pain, sex)
+summary(data_pain)
+
+# Remove rows with missing values in the model variables
+data_pain <- data_pain %>%
+  drop_na(pain, sex, age, STAI_trait, pain_cat, mindfulness,
+          cortisol_serum, cortisol_saliva)
+
+# Check: should be 158 rows
+nrow(data_pain)
 
 ```
+I found three coding errors: one "woman" value was recoded to "female", and two impossible values (pain = 50, mindfulness = 6.22) were set to missing. These two rows were excluded from the analysis, leaving 158 participants.
 
 ### Model diagnostics
 #### Build the more complex model
@@ -86,7 +149,8 @@ If you find values in the dataset during the EDA, that are not correct based on 
 In order to test the more complex model for outliers and to test the assumptions first build the model.
 
 ```{r}
-
+mod_complex <- lm(pain ~ age + sex + STAI_trait + pain_cat + mindfulness +
+                    cortisol_serum + cortisol_saliva, data = data_pain)
 ```
 
 #### Checking for influential outliers
@@ -94,28 +158,102 @@ In order to test the more complex model for outliers and to test the assumptions
 Check for outlier values in the model.
 
 ```{r}
+# Cook's distance for each case
+plot(mod_complex, which = 4)
 
+# Cases above the 4/n rule of thumb
+cooks <- cooks.distance(mod_complex)
+which(cooks > 4 / nrow(data_pain))
+max(cooks)
 ```
+Twelve cases exceeded the 4/n Cook's distance cut-off (0.025), but the largest value was only 0.063, far below 1. No case was clearly influential, so all cases were kept.
 
 #### Checking assumptions
 
 Check the normality assumption.
 
 ```{r}
-
+# Normality
+plot(mod_complex, which = 2)
+shapiro.test(residuals(mod_complex))
 ```
-
+The residuals were approximately normal (Shapiro-Wilk W = 0.994, p = 0.788).
 Check the linearity assumption.
 
 ```{r}
-
+# Linearity
+car::crPlots(mod_complex)
 ```
+The smooth lines on the component + residual plots were close to the linear fit, so linearity was acceptable.
+Check the homoscedasticty assumption (homogeneity of variance).
+
+```{r}
+# Homoscedasticity
+plot(mod_complex, which = 3)
+lmtest::bptest(mod_complex)
+```
+The Breusch-Pagan test wasn't significant (BP = 6.76, df = 7, p = 0.454) - the variance was constant.
+Check the multicollinearity assumption.
+
+(VIF above 5), or a VIF threshold of 3 is recommended in this paper: http://onlinelibrary.wiley.com/doi/10.1111/j.2041-210X.2009.00001.x/full
+
+Some info about VIF: 
+https://statisticalhorizons.com/multicollinearity
+http://blog.minitab.com/blog/understanding-statistics/handling-multicollinearity-in-regression-analysis
+
+```{r}
+# Multicollinearity
+car::vif(mod_complex)
+cor(data_pain$cortisol_serum, data_pain$cortisol_saliva)
+```
+Serum and saliva cortisol were highly correlated (r = 0.91); their VIF values were above 5 (6.02 and 6.59). All other VIF value were below 2.1.
+
+### Making decision based on model diagnostics
+
+If based on the assumption tests you decide to drop a predictor variable you should do that here. Create your updated model.
+
+```{r}
+# Predictor with the high VIF (probably cortisol_saliva)
+mod_final <- lm(pain ~ age + sex + STAI_trait + pain_cat + mindfulness +
+                  cortisol_serum, data = data_pain)
+```
+Because of the multicollinearity, and because serum cortisol is considered the more reliable stress measure, I dropped salivary cortisol from the model. I then re-ran all checks on the updated model.
+
+#### Checking outliers of the updated model
+
+```{r}
+# Run all checks on the updated model again
+# Cook's distance of the updated model
+plot(mod_final, which = 4)
+max(cooks.distance(mod_final))
+```
+
+Cook's distance was checked again on the updated model. The largest value was 0.071, far below 1, so no case was influential and all cases were kept.
+
+#### Checking assumptions of the updated model
+
+```{r}
+# Normality
+plot(mod_final, which = 2)
+shapiro.test(residuals(mod_final))
+```
+The residuals of the updated model were approximately normal (Shapiro-Wilk W = 0.993, p = 0.612).
+
+```{r}
+# Linearity
+car::crPlots(mod_final)
+plot(mod_final, which = 1)
+```
+The smooth lines on the component + residual plots were close to the linear fit, so linearity was acceptable.
 
 Check the homoscedasticty assumption (homogeneity of variance).
 
 ```{r}
-
+# Homoscedasticity
+plot(mod_final, which = 3)
+lmtest::bptest(mod_final)
 ```
+The Breusch-Pagan test was not significant (BP = 7.06, df = 6, p = 0.315), so the variance was constant.
 
 Check the multicollinearity assumption.
 
@@ -126,66 +264,84 @@ https://statisticalhorizons.com/multicollinearity
 http://blog.minitab.com/blog/understanding-statistics/handling-multicollinearity-in-regression-analysis
 
 ```{r}
-
+# Multicollinearity
+car::vif(mod_final)
+cor(data_pain$cortisol_serum, data_pain$cortisol_saliva) # Correlation of the two cortisol measures (just for reference)
 ```
 
-### Making decision based on model diagnostics
-
-If based on the assumption tests you decide to drop a predictor variable you should do that here. Create your updated model.
-
-```{r}
-
-```
-
-#### Checking outliers of the updated model
-
-```{r}
-
-```
-
-#### Checking assumptions of the updated model
-
-Normality assumption
-
-```{r}
-
-```
-
-Linearity assumption
-
-```{r}
-
-```
-
-Homoscedasticty assumption (homogeneity of variance)
-
-```{r}
-
-```
-
-Multicollinearity assumption
-
-```{r}
-
-```
+All VIF values were below 2 (highest: 1.87 for STAI_trait), so multicollinearity was no longer a problem.
 
 ## Model comparison
 
 Create the simple model and get the results of the model that needs to be reported based on the What to report section.
 
 ```{r}
+# Simple model: age and sex only
+mod_simple <- lm(pain ~ age + sex, data = data_pain)
 
+# Model test statistics
+glance(mod_simple) %>%
+  select(adj.r.squared, statistic, df, df.residual, p.value, AIC) %>%
+  mutate(
+    p.value = ifelse(p.value < 0.001, "< .001", sprintf("%.3f", p.value)),
+    across(where(is.numeric), ~ round(., 3))
+  ) %>%
+  knitr::kable(caption = "Model fit statistics for the simpler model")
+
+# Coefficients table
+tidy(mod_simple, conf.int = TRUE) %>%
+  mutate(beta = lm.beta(mod_simple)$standardized.coefficients) %>%
+  select(Predictor = term, B = estimate, `95% CI Lower` = conf.low, 
+         `95% CI Upper` = conf.high, Beta = beta, p = p.value) %>%
+  mutate(
+    p = ifelse(p < 0.001, "< .001", sprintf("%.3f", p)),
+    across(where(is.numeric), ~ round(., 3))
+  ) %>%
+  knitr::kable(caption = "Regression coefficients for the simpler model")
 ```
-
+The simpler model (age and sex) explained a small part of the variance in pain (adj. R² = 0.069, F(2, 155) = 6.78, p = 0.002). Age was a significant negative predictor (B = -0.084, 95% CI [-0.13, -0.039], β = -0.281, p < 0.001), sex was not (B = 0.131, 95% CI [-0.328, 0.59], β = 0.044, p = 0.573).
 Create the more complex model based on the results of the model diagnostics. Also, get the results that needs to be reported based on the What to report section.
 
 ```{r}
+# Final model test statistics
+glance(mod_final) %>%
+  select(adj.r.squared, statistic, df, df.residual, p.value, AIC) %>%
+  mutate(
+    p.value = ifelse(p.value < 0.001, "< .001", sprintf("%.3f", p.value)),
+    across(where(is.numeric), ~ round(., 3))
+  ) %>%
+  knitr::kable(caption = "Model fit statistics for the final complex model")
 
+# Final model coefficients table
+tidy(mod_final, conf.int = TRUE) %>%
+  mutate(beta = lm.beta(mod_final)$standardized.coefficients) %>%
+  select(Predictor = term, B = estimate, `95% CI Lower` = conf.low, 
+         `95% CI Upper` = conf.high, Beta = beta, p = p.value) %>%
+  mutate(
+    p = ifelse(p < 0.001, "< .001", sprintf("%.3f", p)),
+    across(where(is.numeric), ~ round(., 3))
+  ) %>%
+  knitr::kable(caption = "Regression coefficients for the final complex model")
+
+# Coefficients for the regression equation
+round(coef(mod_final), 3)
 ```
+The more complex model explained substantially more variance (adj. R² = 0.312, F(6, 151) = 12.9, p < 0.001). Serum cortisol (B = 0.543, β = 0.357, p < 0.001) and pain catastrophizing (B = 0.083, β = 0.257, p = 0.004) were significant predictors.
+
+The regression equation of the model:
+
+Pain = 1.945 - 0.034 * age + 0.316 * sex(male) - 0.013 * STAI_trait + 0.083 * pain_cat - 0.136 * mindfulness + 0.543 * cortisol_serum
 
 Compare the two models.
 
 ```{r}
+# AIC of both models (lower is better)
+AIC(mod_simple, mod_final)
 
+# F test comparing the two nested models
+anova(mod_simple, mod_final)
 ```
+The AIC was lower for the more complex model (528.5 vs. 572.5), and the model comparison test showed a significantly better fit (F(4, 151) = 14.70, p < 0.001).
 
+## Discussion
+Adding the psychological and hormonal variables clearly improved our understanding of postoperative pain. The explained variance increased from about 7% to about 31% (adjusted R²), the AIC dropped by 44 points, and the F test was significant. Within the more complex model, serum cortisol and pain catastrophizing were the only significant predictors: higher levels of both were associated with higher pain. Trait anxiety and mindfulness did not add unique information once the other variables were included. Age was a significant predictor in the simpler model but not in the complex one, which suggests that its effect overlaps with the added variables. A limitation is that the data are simulated and cross-sectional, so the results show associations, not causation. Also, salivary cortisol was dropped because of multicollinearity, so its separate contribution could not be assessed.

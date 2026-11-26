@@ -14,12 +14,16 @@ You will have to create 3 plots based on the datasets and instructions detailed 
 -   Reporting using RMarkdown
 -   Using Git and Github (for submitting the task)
 -   Data manipulation (e.g. dplyr, tidyr), and working with factors (forcats)
--   Data visuzlization (ggplot2)
+-   Data visualization (ggplot2)
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(tidytuesdayR)
+library(scales)
+library(forcats)
+library(viridis)
+library(RColorBrewer)
 ```
 
 ## Task 1: Climbing expeditions
@@ -31,7 +35,37 @@ The 2020-09-22 TidyTueday datasets are about climbing expeditions. From the thre
 -   The bar colors use the viridis palette and light theme.
 
 ```{r}
-
+expeditions <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2020/2020-09-22/expeditions.csv')
+```
+```{r}
+glimpse(expeditions)
+```
+```{r}
+# Count expeditions for each peak (just a check)
+expeditions %>% 
+  count(peak_name, sort = TRUE) %>% 
+  head(20)
+```
+```{r}
+# Keep the 15 most frequent peaks, drop "Other", and order the peaks by the total number of expeditions
+expeditions_top15 <- expeditions %>%
+  mutate(peak_name = fct_lump(peak_name, n = 15)) %>%
+  filter(peak_name != "Other") %>%
+  mutate(peak_name = fct_reorder(peak_name, peak_name, length))
+```
+```{r}
+# Stacked bar plot by season
+expeditions_top15 %>%
+  ggplot(aes(y = peak_name, fill = season)) +
+  geom_bar() +
+  scale_fill_viridis_d() +
+  theme_light() +
+  theme(legend.position = "bottom") +
+  labs(
+    title = "The 15 most popular peaks stacked by season of expedition",
+    x = "Number of expeditions",
+    y = NULL
+  )
 ```
 
 ## Task 2: PhDs awarded
@@ -45,8 +79,34 @@ Notes:
 -   The line size is 1.2, the colors are from the brewer "Dark2" palette. The theme is set to minimal.
 
 ```{r}
-
+phddata <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/refs/heads/main/data/2019/2019-02-19/phd_by_field.csv")
 ```
+```{r}
+glimpse(phddata)
+```
+```{r}
+# Count all PhDs by broad field and year.
+phd_broad <- phddata %>%
+  group_by(broad_field, year) %>%
+  summarise(n_phds = sum(n_phds, na.rm = TRUE), .groups = "drop")
+```
+```{r}
+# Line plot by broad field
+phd_broad %>%
+  ggplot(aes(x = year, y = n_phds, color = broad_field)) +
+  geom_line(linewidth = 1.2) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_minimal() +
+  labs(
+    title = "Number of awarded Ph.D.-s in the US by year",
+    x = NULL,
+    y = NULL,
+    color = "Broad field"
+  )
+```
+
 
 ## Task 3: Commute in the US
 
@@ -59,5 +119,32 @@ Notes:
 -   The point size is 2, . The theme is set to light.
 
 ```{r}
-
+commute <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2019/2019-11-05/commute.csv")
 ```
+```{r}
+glimpse(commute)
+```
+```{r}
+# Count all commutes by state, then put walk and bike in separate columns
+commute_state <- commute %>%
+  group_by(state, state_abb, state_region, mode) %>%
+  summarise(n = sum(n, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = mode, values_from = n)
+```
+```{r}
+# Scatter plot with log scales
+commute_state %>%
+  ggplot(aes(x = Walk, y = Bike, color = state_region)) +
+  geom_point(size = 2) +
+  geom_text(aes(label = state_abb), color = "black", size = 5, check_overlap = TRUE) +
+  scale_x_log10(labels = scales::comma_format()) +
+  scale_y_log10(labels = scales::comma_format()) +
+  theme_light() +
+  labs(
+    title = "Title number of people walking vs. biking to work in each USA state",
+    x = "Number of people walking to work (log N)",
+    y = "Number of people biking to work (log N)",
+    color = "State region"
+  )
+```
+
